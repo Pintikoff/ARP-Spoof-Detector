@@ -13,8 +13,7 @@ GhostOnWire is a dual-purpose ARP security toolkit comprising an offensive ARP s
 ## Dependencies
 
 ```bash
-pip install scapy
-pip install rich
+pip install -r requirements.txt
 ```
 
 ## Run the programm 
