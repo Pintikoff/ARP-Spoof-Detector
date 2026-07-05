@@ -1,64 +1,70 @@
 import scapy.all as scapy
 import time
-import os
 from rich.table import Table
 from rich.console import Console
 
 NETWORK = "192.168.178.0/24"
+DISPLAY_RESET = 1
+last_display_time = 0
 
 spoof_warnings = []
 reported_ips = set()
 
+arp_cache = {}
+
 def create_arp_table():
-    arp_reqest = scapy.ARP(pdst=NETWORK)
+    arp_request = scapy.ARP(pdst=NETWORK)
     broadcast = scapy.Ether(dst = "ff:ff:ff:ff:ff:ff")
-    arp_request_broadcast = broadcast / arp_reqest 
-    answered_list = scapy.srp(arp_request_broadcast, timeout = 5, verbose = False)[0]
+    arp_request_broadcast = broadcast / arp_request 
+    answered_list = scapy.srp(arp_request_broadcast, timeout = 3, verbose = False)[0]
     first_seen = time.strftime("[%H:%M:%S]")
 
     with open("arp_table.txt", "a", encoding="ascii") as file:
          for sent, received in answered_list: 
-            file.write(received.psrc + " " + received.hwsrc + " " + first_seen + " " + first_seen + "\n")
+            vendor = scapy.conf.manufdb._get_manuf(received.hwsrc)
+            file.write(received.psrc + " " + received.hwsrc + " " + first_seen + " " + first_seen + " " + vendor +"\n")
             print("[*]" + received.psrc, "->", received.hwsrc)
+    load_arp_cache()
 
 def process_packet(packet):
+    global last_display_time
     if scapy.ARP not in packet:
         return
-
-    source_ip = packet[scapy.ARP].psrc
-    source_mac =  packet[scapy.ARP].hwsrc
-    real_mac = get_mac(source_ip)
-    #*print("==========================================")
-    #*print("| Source IP: " + source_ip)
-    #*print("| Source MAC: " + source_mac)
-    #*print("| Vendor: " + scapy.conf.manufdb._get_manuf(source_mac))
-    #*print("| Operation type: " + str(packet[scapy.ARP].op))
-    #*print("| Time: " + time.strftime("[%H:%M:%S]"))
-    #*print("==========================================")
-
-    if real_mac == source_mac:
-        update_table(source_ip, source_mac)
+    
     spoof_detection(packet)
-    print("\033c", end="")
-    display_arp_table()
-    display_warnings()
+    now = time.time()
+
+    if(now - last_display_time >= DISPLAY_RESET):
+        print("\033c", end="")
+        display_arp_table()
+        display_warnings()
+        last_display_time = now
 
 def spoof_detection(packet):
     source_ip = packet[scapy.ARP].psrc
     source_mac =  packet[scapy.ARP].hwsrc
     found = False
-
+    real_mac = arp_cache.get(source_ip)
     with open("arp_table.txt", "r") as file:
         for line in file:
             parts = line.split()
-            ip = parts[0]
-            mac = parts[1]
+            if len(parts) >= 5:
+                ip = parts[0]
+            else: continue
 
             if ip == source_ip:
                 found = True
-                if mac != source_mac and packet[scapy.ARP].op == 2:
-                    real_mac = get_mac(source_ip)
-                    if real_mac and real_mac != source_mac:
+
+                if packet[scapy.ARP].op == 2:
+                    if real_mac == source_mac:
+                        update_table(source_ip, source_mac)
+                        reported_ips.discard(source_ip)
+                        spoof_warnings[:] = [
+                            w for w in spoof_warnings
+                            if w["suspicious_ip"] != source_ip
+                        ]
+                        break  
+                    elif real_mac and real_mac != source_mac:
                         if source_ip not in reported_ips:
                             reported_ips.add(source_ip)
                             spoof_warnings.append({
@@ -74,39 +80,30 @@ def spoof_detection(packet):
                                 if w["suspicious_ip"] == source_ip:
                                     w["time"] = time.strftime("[%H:%M:%S]")
                                     break
+                break
                     
-                        #print("----------------WARNING----------------")
-                        #print("[*] TIME: " + time.strftime("[%H:%M:%S]"))
-                        #print("[*] MAC-Spoofing (MITM) DETECTED")
-                        #print("[*] Target IP: " + source_ip)
-                        #print("[*] Real MAC: " + real_mac)
-                        #print("[*] Received MAC: " + source_mac)
-                        #print("---------------------------------------")
-                        #!display_warnings()
-                    if real_mac == source_mac:
-                        update_table(source_ip, real_mac)
-                        reported_ips.discard(source_ip)
-
-                        spoof_warnings[:] = [
-                            w for w in spoof_warnings
-                            if w["suspicious_ip"] != source_ip
-                        ]
-                break  
     if not found:
-        add_device(source_ip, source_mac)
+        if real_mac is None:
+            real_mac = get_mac(source_ip)
+        if real_mac and source_mac == real_mac:
+            add_device(source_ip, source_mac)
+
+def load_arp_cache():
+    arp_cache.clear()
+    with open("arp_table.txt", "r") as file:
+        for line in file:
+            parts = line.split()
+            if len(parts) >= 2:
+                arp_cache[parts[0]] = parts[1]
 
 def get_mac(target_ip):
-    #creatign an ARP request with target ip
-    arp_reqest = scapy.ARP(pdst=target_ip)
-    #creating an Ether frame to broadcast the request with tatget ip
+    arp_request = scapy.ARP(pdst=target_ip)
     broadcast = scapy.Ether(dst = "ff:ff:ff:ff:ff:ff")
-    #combining via '/'
-    arp_request_broadcast = broadcast / arp_reqest 
+    arp_request_broadcast = broadcast / arp_request 
     #srp is a func that sends/recieves packets on Layer 2
     #sends arp_request_broadcast packet, waits for an answer for 5 sec and returns only answers ([0]) 
     # [0] - answers; [1] unanswered
-    answered_list = scapy.srp(arp_request_broadcast, timeout = 5, verbose = False)[0]
-    
+    answered_list = scapy.srp(arp_request_broadcast, timeout = 3, verbose = False)[0]
     # answered list:
 
     # [
@@ -115,43 +112,48 @@ def get_mac(target_ip):
     # ]
     if answered_list:
         return answered_list[0][1].hwsrc
-
     return None
 
 def add_device(source_ip, source_mac):
-    #*print("---------------Found New Device---------------")
-    #*print (source_ip + "->" + source_mac)
-    #*print("----------------------------------------------")
     first_seen = time.strftime("[%H:%M:%S]")
+    vendor = scapy.conf.manufdb._get_manuf(source_mac)
     with open("arp_table.txt", "a") as file:
-        file.write(source_ip + " " + source_mac + " " + first_seen + " " + first_seen + "\n")
+        file.write(source_ip + " " + source_mac + " " + first_seen + " " + first_seen + " " + vendor + "\n")
+    load_arp_cache()
 
 def update_table(source_ip, real_mac):
-    last_seen = time.strftime("[%H:%M:%S]")
     with open("arp_table.txt", "r") as file:
         lines = file.readlines()
     with open("arp_table.txt", "w") as file:
         for line in lines:
-            ip = line.split()[0]
-            first_seen = line.split()[2]
+            parts = line.split()
+            if len(parts) >= 5:
+                ip = parts[0]
+                first_seen = parts[2]
+            else: continue
+
             if ip == source_ip:
-                file.write(f"{ip} {real_mac} {first_seen} {last_seen}\n")
+                last_seen = time.strftime("[%H:%M:%S]")
+                vendor = scapy.conf.manufdb._get_manuf(real_mac)
+                file.write(f"{ip} {real_mac} {first_seen} {last_seen} {vendor}\n")
             else:
                 file.write(line)
+    load_arp_cache()
 
 def display_arp_table():
     console = Console()
     table = Table(title="ARP Table")
     table.add_column("IP Address", style="cyan", no_wrap=True)
     table.add_column("MAC Address", style="green")
+    table.add_column("Vendor: ", style="purple")
     table.add_column("First Seen", style="yellow")
     table.add_column("Last Seen", style="yellow")
 
     with open("arp_table.txt", "r") as file:
         for line in file:
             parts = line.strip().split()
-            if len(parts) >= 4:
-                table.add_row(parts[0], parts[1], parts[2], parts[3])
+            if len(parts) >= 5:
+                table.add_row(parts[0], parts[1], parts[4], parts[2], parts[3])
 
     console.print(table)
 
