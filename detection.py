@@ -23,7 +23,8 @@ def create_arp_table():
          for sent, received in answered_list: 
             vendor = scapy.conf.manufdb._get_manuf(received.hwsrc)
             file.write(received.psrc + " " + received.hwsrc + " " + first_seen + " " + first_seen + " " + vendor +"\n")
-            print("[*]" + received.psrc, "->", received.hwsrc)
+            display_arp_table()
+            print("[*] Waiting for ARP packets.....")
     load_arp_cache()
 
 def process_packet(packet):
@@ -58,11 +59,6 @@ def spoof_detection(packet):
                 if packet[scapy.ARP].op == 2:
                     if real_mac == source_mac:
                         update_table(source_ip, source_mac)
-                        reported_ips.discard(source_ip)
-                        spoof_warnings[:] = [
-                            w for w in spoof_warnings
-                            if w["suspicious_ip"] != source_ip
-                        ]
                         break  
                     elif real_mac and real_mac != source_mac:
                         if source_ip not in reported_ips:
