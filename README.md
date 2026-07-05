@@ -1,7 +1,7 @@
 # ARP-Spoof-Detector
 
 ## Overview
-
+[Offensive_Defensive_Documentation](Offensive_Defensive_Guide.md)
 GhostOnWire is a dual-purpose ARP security toolkit comprising an offensive ARP spoofer and a real-time ARP spoof detection engine. It operates at Layer 2 of the OSI model using Scapy for packet manipulation and Rich for terminal-based dashboarding. The tool was developed to demonstrate ARP protocol vulnerabilities and to build practical detection mechanisms against the most common MITM attack vector in local networks.
 
 ---
