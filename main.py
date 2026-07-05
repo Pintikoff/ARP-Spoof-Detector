@@ -83,4 +83,5 @@ except:
     restore(gateway_ip, gateway_mac, target_ip, target_mac)
     print("[+] Arp Spoof Stopped")
 
+#thx
 
