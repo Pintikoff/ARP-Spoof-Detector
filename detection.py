@@ -1,5 +1,6 @@
 import scapy.all as scapy
 import time
+import re
 from rich.table import Table
 from rich.console import Console
 
@@ -176,6 +177,13 @@ def display_warnings():
     console.print(table)
 
 if __name__ == "__main__":
+    while True:
+        print("[*] Enter A Subnet Address")
+        NETWORK = input()
+        if re.fullmatch(r"\d+\.\d+\.\d+\.\d+/\d+", NETWORK):
+            break
+        print("[-] Invalid format. Example: 192.168.178.0/24")
+
     create_arp_table()
 
     scapy.sniff(
