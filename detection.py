@@ -1,16 +1,18 @@
 import scapy.all as scapy
 import time
 import re
+import os
 from rich.table import Table
 from rich.console import Console
 
 NETWORK = "192.168.178.0/24"
-DISPLAY_RESET = 1
+DISPLAY_RESET = 3
+FILE_NAME = "logs_" + time.strftime("%d_%H_%M") + ".txt"
 last_display_time = 0
 
 spoof_warnings = []
 reported_ips = set()
-
+console = Console()
 arp_cache = {}
 
 def create_arp_table():
@@ -20,11 +22,11 @@ def create_arp_table():
     answered_list = scapy.srp(arp_request_broadcast, timeout = 3, verbose = False)[0]
     first_seen = time.strftime("[%H:%M:%S]")
 
-    with open("arp_table.txt", "a", encoding="ascii") as file:
+    with open(FILE_NAME, "a", encoding="ascii") as file:
          for sent, received in answered_list: 
             vendor = scapy.conf.manufdb._get_manuf(received.hwsrc)
             file.write(received.psrc + " " + received.hwsrc + " " + first_seen + " " + first_seen + " " + vendor +"\n")
-            display_arp_table()
+            display_arp_table(console)
             print("[*] Waiting for ARP packets.....")
     load_arp_cache()
 
@@ -37,9 +39,9 @@ def process_packet(packet):
     now = time.time()
 
     if(now - last_display_time >= DISPLAY_RESET):
-        print("\033c", end="")
-        display_arp_table()
-        display_warnings()
+        os.system('clear')
+        display_arp_table(console)
+        display_warnings(console)
         last_display_time = now
 
 def spoof_detection(packet):
@@ -47,7 +49,7 @@ def spoof_detection(packet):
     source_mac =  packet[scapy.ARP].hwsrc
     found = False
     real_mac = arp_cache.get(source_ip)
-    with open("arp_table.txt", "r") as file:
+    with open(FILE_NAME, "r") as file:
         for line in file:
             parts = line.split()
             if len(parts) >= 5:
@@ -87,7 +89,7 @@ def spoof_detection(packet):
 
 def load_arp_cache():
     arp_cache.clear()
-    with open("arp_table.txt", "r") as file:
+    with open(FILE_NAME, "r") as file:
         for line in file:
             parts = line.split()
             if len(parts) >= 2:
@@ -114,14 +116,14 @@ def get_mac(target_ip):
 def add_device(source_ip, source_mac):
     first_seen = time.strftime("[%H:%M:%S]")
     vendor = scapy.conf.manufdb._get_manuf(source_mac)
-    with open("arp_table.txt", "a") as file:
+    with open(FILE_NAME, "a") as file:
         file.write(source_ip + " " + source_mac + " " + first_seen + " " + first_seen + " " + vendor + "\n")
     load_arp_cache()
 
 def update_table(source_ip, real_mac):
-    with open("arp_table.txt", "r") as file:
+    with open(FILE_NAME, "r") as file:
         lines = file.readlines()
-    with open("arp_table.txt", "w") as file:
+    with open(FILE_NAME, "w") as file:
         for line in lines:
             parts = line.split()
             if len(parts) >= 5:
@@ -137,8 +139,7 @@ def update_table(source_ip, real_mac):
                 file.write(line)
     load_arp_cache()
 
-def display_arp_table():
-    console = Console()
+def display_arp_table(console):
     table = Table(title="ARP Table")
     table.add_column("IP Address", style="cyan", no_wrap=True)
     table.add_column("MAC Address", style="green")
@@ -146,7 +147,7 @@ def display_arp_table():
     table.add_column("First Seen", style="yellow")
     table.add_column("Last Seen", style="yellow")
 
-    with open("arp_table.txt", "r") as file:
+    with open(FILE_NAME, "r") as file:
         for line in file:
             parts = line.strip().split()
             if len(parts) >= 5:
@@ -154,8 +155,7 @@ def display_arp_table():
 
     console.print(table)
 
-def display_warnings():
-    console = Console()
+def display_warnings(console):
     table = Table(title="Spoofing Warnings", title_style="bold red")
     table.add_column("Description", style="red")
     table.add_column("Suspicious IP", style="cyan")
